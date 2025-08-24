@@ -7,7 +7,7 @@ edition = "2024"
 ratatui = "0.29"
 crossterm = "0.29"
 anyhow = "1"
-rand = { version = "0.9", deafult-features = false, features = ["std_rng"] }
+rand = { version = "0.9", default-features = false, features = ["std_rng", "os_rng"] }
 argh = { version = "0.1", default-features = false, features = ["help"] }
 itoa = "1"
 constcat = "0.6"
