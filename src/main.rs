@@ -231,7 +231,7 @@ impl<R: Rng> App<R> {
                     if let Some(point) = self.point {
                         self.game.place_next(point);
                         self.point = self.game.find_free(point, game::Direction::Any);
-                        if self.point.is_none() {
+                        if self.game.is_finished().is_some() {
                             self.mode = ScreenMode::GameOver;
                         }
                     }
