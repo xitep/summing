@@ -1,9 +1,9 @@
 use rand::Rng;
 
+// ~ 0-9 or u8::MAX
 type Stone = u8;
 
 const NUM_STONES: u8 = 10;
-const FREE_BIT: u8 = 0b_1000_0000;
 const ROWS: usize = 9;
 const COLS: usize = 9;
 
@@ -22,7 +22,6 @@ pub struct Game<R> {
     // ~ number of (user) placed stones, ie. the "score"
     num_placed: usize,
     // ~ the board of stones; rows of columns
-    // ~ highest bit of each field signifies whether it's free
     board: [Stone; MAX_STONES],
 }
 
@@ -84,10 +83,10 @@ impl<R> Game<R> {
     // ~ panics if `row` or `col` are out of bounds.
     pub fn get(&self, row: usize, col: usize) -> Option<&'static str> {
         let v = self.board[row * COLS + col];
-        if v & FREE_BIT == 0 {
-            Some(stone_label(v))
-        } else {
+        if v == Stone::MAX {
             None
+        } else {
+            Some(stone_label(v))
         }
     }
 
@@ -98,25 +97,26 @@ impl<R> Game<R> {
         if self.num_remaining == MAX_STONES {
             return None;
         }
+
+        macro_rules! if_free_return_cursor {
+            ($index:ident) => {
+                if self.board[$index] == Stone::MAX {
+                    return Some(Cursor {
+                        x: ($index % COLS) as u8,
+                        y: ($index / COLS) as u8,
+                    });
+                }
+            };
+        }
         match direction {
             Direction::Any => {
                 // XXX find a point with the closest distance in 2d space
                 let start = point.y as usize * COLS + point.x as usize + 1;
                 for i in start..self.board.len() {
-                    if self.board[i] & FREE_BIT != 0 {
-                        return Some(Cursor {
-                            x: (i % COLS) as u8,
-                            y: (i / COLS) as u8,
-                        });
-                    }
+                    if_free_return_cursor!(i);
                 }
                 for i in 0..start {
-                    if self.board[i] & FREE_BIT != 0 {
-                        return Some(Cursor {
-                            x: (i % COLS) as u8,
-                            y: (i / COLS) as u8,
-                        });
-                    }
+                    if_free_return_cursor!(i);
                 }
             }
             Direction::North => {
@@ -127,12 +127,7 @@ impl<R> Game<R> {
                 } - 1;
                 let mut i = start_y * COLS + point.x as usize;
                 for _ in 0..ROWS {
-                    if self.board[i] & FREE_BIT != 0 {
-                        return Some(Cursor {
-                            x: (i % COLS) as u8,
-                            y: (i / COLS) as u8,
-                        });
-                    }
+                    if_free_return_cursor!(i);
                     i = if i < COLS {
                         (ROWS - 1) * COLS + point.x as usize
                     } else {
@@ -143,12 +138,7 @@ impl<R> Game<R> {
             Direction::South => {
                 let mut i = (point.y as usize + 1) % ROWS * COLS + point.x as usize;
                 for _ in 0..ROWS {
-                    if self.board[i] & FREE_BIT != 0 {
-                        return Some(Cursor {
-                            x: (i % COLS) as u8,
-                            y: (i / COLS) as u8,
-                        });
-                    }
+                    if_free_return_cursor!(i);
                     if i + COLS < self.board.len() {
                         i += COLS;
                     } else {
@@ -161,12 +151,7 @@ impl<R> Game<R> {
                 let start_i = point.y as usize * COLS + start_x;
                 for span in [start_i..(start_i + COLS - start_x), 0..start_i] {
                     for i in span {
-                        if self.board[i] & FREE_BIT != 0 {
-                            return Some(Cursor {
-                                x: (i % COLS) as u8,
-                                y: (i / COLS) as u8,
-                            });
-                        }
+                        if_free_return_cursor!(i);
                     }
                 }
             }
@@ -182,12 +167,7 @@ impl<R> Game<R> {
                     (start_i..(start_i + COLS - point.x as usize)).rev(),
                 ] {
                     for i in span {
-                        if self.board[i] & FREE_BIT != 0 {
-                            return Some(Cursor {
-                                x: (i % COLS) as u8,
-                                y: (i / COLS) as u8,
-                            });
-                        }
+                        if_free_return_cursor!(i);
                     }
                 }
             }
@@ -201,7 +181,7 @@ impl<R> Game<R> {
         match state {
             Finished::Success => {
                 for i in 0..self.board.len() {
-                    self.board[i] |= FREE_BIT;
+                    self.board[i] = Stone::MAX;
                 }
                 self.num_remaining = 0;
             }
@@ -253,12 +233,6 @@ impl<R: Rng> Game<R> {
     /// Places the next stone (from `nexts`) onto the board
     // ~ panics if `point` is out of bounds
     pub fn place_next(&mut self, point: Cursor) {
-        let i = point.y as usize * COLS + point.x as usize;
-        if self.board[i] & FREE_BIT == 0 {
-            // ~ cannot place a stone into an already occupied cell
-            return;
-        }
-
         let (idxs, cnt, sum) = {
             // ~ row above `point`
             let (x, y) = (point.x as usize, point.y as usize);
@@ -293,7 +267,7 @@ impl<R: Rng> Game<R> {
 
             let (cnt, sum) = idxs
                 .iter()
-                .filter(|&&i| i != usize::MAX && self.board[i] & FREE_BIT == 0)
+                .filter(|&&i| i != usize::MAX && self.board[i] != Stone::MAX)
                 .map(|&i| self.board[i] as usize)
                 .fold((0, 0), |(cnt, sum), v| (cnt + 1, sum + v));
             (idxs, cnt, (sum % 10))
@@ -304,7 +278,7 @@ impl<R: Rng> Game<R> {
 
         if cnt > 0 && n as usize == sum {
             idxs.into_iter().filter(|&i| i != usize::MAX).for_each(|i| {
-                self.board[i] |= FREE_BIT;
+                self.board[i] = Stone::MAX;
             });
             self.num_remaining -= cnt;
         } else {
@@ -319,19 +293,19 @@ fn new_board<R: Rng>(rng: &mut R) -> [Stone; MAX_STONES] {
     let mut xs = [0u8; ROWS * COLS];
     // ~ first row
     (0..COLS).for_each(|i| {
-        xs[i] |= FREE_BIT;
+        xs[i] = Stone::MAX;
     });
     // ~ middle cells
     for row in 1..(ROWS - 1) {
-        xs[row * COLS] |= FREE_BIT;
+        xs[row * COLS] = Stone::MAX;
         for col in 1..COLS - 1 {
             xs[row * COLS + col] = rng.random_range::<u8, _>(0..NUM_STONES);
         }
-        xs[row * COLS + COLS - 1] |= FREE_BIT;
+        xs[row * COLS + COLS - 1] = Stone::MAX;
     }
     // ~ last row
     (((ROWS - 1) * COLS)..(((ROWS - 1) * COLS) + COLS)).for_each(|i| {
-        xs[i] |= FREE_BIT;
+        xs[i] = Stone::MAX;
     });
     xs
 }
