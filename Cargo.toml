@@ -2,6 +2,8 @@
 name = "summing"
 version = "0.1.0"
 edition = "2024"
+keywords = ["terminal", "game", "tui"]
+categories = ["games"]
 
 [dependencies]
 ratatui = "0.29"
