@@ -229,8 +229,9 @@ impl<R: Rng> App<R> {
                 }
                 KeyCode::Char(' ') => {
                     if let Some(point) = self.point {
-                        self.game.place_next(point);
-                        self.point = self.game.find_free(point, game::Direction::Any);
+                        if self.game.place_next(point) {
+                            self.point = self.game.find_free_any(point);
+                        }
                         if self.game.is_finished().is_some() {
                             self.mode = ScreenMode::GameOver;
                         }
@@ -248,7 +249,7 @@ impl<R: Rng> App<R> {
                 }
                 KeyCode::Char('n') => {
                     self.game.reinit();
-                    self.point = self.game.find_free(Cursor::default(), game::Direction::Any);
+                    self.point = Some(Cursor::default());
                     self.mode = ScreenMode::Playing;
                 }
                 _ => {}

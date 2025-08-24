@@ -43,7 +43,6 @@ pub struct Cursor {
 }
 
 pub enum Direction {
-    Any,
     North,
     South,
     East,
@@ -90,13 +89,84 @@ impl<R> Game<R> {
         }
     }
 
-    /// Finds a free place preferrably in the given direction wrapping
-    /// around if necessary.
+    /// Finds any free place preferrably close to `point`.
+    // ~ panics if `point` is out of the board's bounds
+    pub fn find_free_any(&self, point: Cursor) -> Option<Cursor> {
+        if self.num_remaining == MAX_STONES {
+            return None;
+        }
+
+        macro_rules! if_free_return_cursor {
+            ($x:expr, $y:expr) => {
+                if self.board[$y as usize * COLS + $x as usize] == Stone::MAX {
+                    return Some(Cursor {
+                        x: $x as u8,
+                        y: $y as u8,
+                    });
+                }
+            };
+        }
+
+        // ~ is `point` itself free? we never get called on a free point, though.
+        // if_free_return_cursor!(point.x, point.y);
+
+        // ~ look for free cells in a circle around `point` with an
+        // increasing radius ... thereby finding the closest free
+        // board cell - if any
+        for r in 1..ROWS.max(COLS) {
+            // ~ check upper row
+            if r <= point.y as usize {
+                let y = point.y as isize - r as isize;
+                for x in (point.x as usize)..(point.x as usize + r + 1).min(COLS) {
+                    if_free_return_cursor!(x, y);
+                }
+                for x in (point.x as isize - r as isize).max(0)..(point.x as isize) {
+                    if_free_return_cursor!(x, y);
+                }
+            }
+            // ~ check right column
+            if point.x as usize + r < COLS {
+                let x = point.x as usize + r;
+                for y in (point.y as isize - r as isize + 1).max(0)..(point.y as isize) {
+                    if_free_return_cursor!(x, y);
+                }
+                for y in (point.y as usize)..(point.y as usize + r).min(ROWS) {
+                    if_free_return_cursor!(x, y);
+                }
+            }
+            // ~ check bottom row
+            if point.y as usize + r < ROWS {
+                let y = point.y as usize + r;
+                for x in (point.x as usize)..(point.x as usize + r + 1).min(COLS) {
+                    if_free_return_cursor!(x, y);
+                }
+                for x in (point.x as isize - r as isize).max(0)..(point.x as isize) {
+                    if_free_return_cursor!(x, y);
+                }
+            }
+            // ~ check left column
+            if r <= point.x as usize {
+                let x = point.x as usize - r;
+                for y in (point.y as isize - r as isize + 1).max(0)..(point.y as isize) {
+                    if_free_return_cursor!(x, y);
+                }
+                for y in (point.y as usize)..(point.y as usize + r).min(ROWS) {
+                    if_free_return_cursor!(x, y);
+                }
+            }
+        }
+        None
+    }
+
+    /// Finds a free place in the preferrably in given direction
+    /// wrapping around if necessary.
     // ~ panics if `point` is out of bounds of the game's board.
     pub fn find_free(&self, point: Cursor, direction: Direction) -> Option<Cursor> {
         if self.num_remaining == MAX_STONES {
             return None;
         }
+
+        // XXX ensure to return Some(..) unless the board is full, otherwise the user end up with not being able to move
 
         macro_rules! if_free_return_cursor {
             ($index:ident) => {
@@ -109,16 +179,6 @@ impl<R> Game<R> {
             };
         }
         match direction {
-            Direction::Any => {
-                // XXX find a point with the closest distance in 2d space
-                let start = point.y as usize * COLS + point.x as usize + 1;
-                for i in start..self.board.len() {
-                    if_free_return_cursor!(i);
-                }
-                for i in 0..start {
-                    if_free_return_cursor!(i);
-                }
-            }
             Direction::North => {
                 let start_y = if point.y as usize == 0 {
                     ROWS
@@ -230,9 +290,12 @@ impl<R: Rng> Game<R> {
         self.num_remaining = (ROWS - 2) * (COLS - 2);
     }
 
-    /// Places the next stone (from `nexts`) onto the board
+    /// Assuming the cell at `point` is free, attempt to place the
+    /// next stone (from `nexts`) to it, returning `true` if the stone
+    /// was placed and now occupies the cell, or `false` if it cleared
+    /// all neighbours and the cell at `point` was left free.
     // ~ panics if `point` is out of bounds
-    pub fn place_next(&mut self, point: Cursor) {
+    pub fn place_next(&mut self, point: Cursor) -> bool {
         let (idxs, cnt, sum) = {
             // ~ row above `point`
             let (x, y) = (point.x as usize, point.y as usize);
@@ -276,16 +339,19 @@ impl<R: Rng> Game<R> {
         let n = ((self.nexts & 0x_ff00_0000) >> 24) as u8;
         self.nexts = (self.nexts << 8) | self.rng.random_range::<u32, _>(0..NUM_STONES as u32);
 
-        if cnt > 0 && n as usize == sum {
+        let cleared = if cnt > 0 && n as usize == sum {
             idxs.into_iter().filter(|&i| i != usize::MAX).for_each(|i| {
                 self.board[i] = Stone::MAX;
             });
             self.num_remaining -= cnt;
+            false
         } else {
             self.board[point.y as usize * COLS + point.x as usize] = n;
             self.num_remaining += 1;
-        }
+            true
+        };
         self.num_placed = self.num_placed.saturating_add(1);
+        cleared
     }
 }
 
