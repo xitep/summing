@@ -278,7 +278,7 @@ impl<R: Rng> App<R> {
 
     fn move_cursor(&mut self, direction: game::Direction) {
         if let Some(point) = self.point {
-            self.point = self.game.find_free(point, direction);
+            self.point = self.game.find_free_next(point, direction);
         }
     }
 }

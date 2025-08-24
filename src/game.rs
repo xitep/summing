@@ -158,26 +158,18 @@ impl<R> Game<R> {
         None
     }
 
-    /// Finds a free place in the preferrably in given direction
-    /// wrapping around if necessary.
+    /// Finds a free place next to `point` preferrably in given
+    /// direction wrapping around if necessary.
     // ~ panics if `point` is out of bounds of the game's board.
-    pub fn find_free(&self, point: Cursor, direction: Direction) -> Option<Cursor> {
+    pub fn find_free_next(&self, point: Cursor, direction: Direction) -> Option<Cursor> {
         if self.num_remaining == MAX_STONES {
             return None;
         }
 
-        // XXX ensure to return Some(..) unless the board is full, otherwise the user end up with not being able to move
+        // XXX rethink the behaviour; consider simplifying such that
+        // the cursor doesn't wrap around, but jumps to the next free
+        // cell in the next row/column
 
-        macro_rules! if_free_return_cursor {
-            ($index:ident) => {
-                if self.board[$index] == Stone::MAX {
-                    return Some(Cursor {
-                        x: ($index % COLS) as u8,
-                        y: ($index / COLS) as u8,
-                    });
-                }
-            };
-        }
         match direction {
             Direction::North => {
                 let start_y = if point.y as usize == 0 {
@@ -186,50 +178,184 @@ impl<R> Game<R> {
                     point.y as usize
                 } - 1;
                 let mut i = start_y * COLS + point.x as usize;
-                for _ in 0..ROWS {
-                    if_free_return_cursor!(i);
+                for _ in 0..(ROWS - 1) {
+                    if self.board[i] == Stone::MAX {
+                        return Some(Cursor {
+                            x: (i % COLS) as u8,
+                            y: (i / COLS) as u8,
+                        });
+                    }
                     i = if i < COLS {
                         (ROWS - 1) * COLS + point.x as usize
                     } else {
                         i - COLS
                     };
                 }
+                self.find_free_before_vert(point.x as usize, 0)
+                    .or_else(|| self.find_free_after_vert(point.x as usize, ROWS - 1))
             }
             Direction::South => {
-                let mut i = (point.y as usize + 1) % ROWS * COLS + point.x as usize;
-                for _ in 0..ROWS {
-                    if_free_return_cursor!(i);
-                    if i + COLS < self.board.len() {
-                        i += COLS;
-                    } else {
-                        i = point.x as usize;
+                let mut i = (point.y as usize + 1) * COLS + point.x as usize;
+                for y in point.y as usize + 1..ROWS {
+                    if self.board[i] == Stone::MAX {
+                        return Some(Cursor {
+                            x: point.x,
+                            y: y as u8,
+                        });
                     }
+                    i += COLS;
                 }
+                i = point.x as usize;
+                for y in 0..point.y as usize {
+                    if self.board[i] == Stone::MAX {
+                        return Some(Cursor {
+                            x: point.x,
+                            y: y as u8,
+                        });
+                    }
+                    i += COLS;
+                }
+                self.find_free_after_vert(point.x as usize, ROWS - 1)
+                    .or_else(|| self.find_free_before_vert(point.x as usize, 0))
             }
             Direction::East => {
-                let start_x = (point.x as usize + 1) % COLS;
-                let start_i = point.y as usize * COLS + start_x;
-                for span in [start_i..(start_i + COLS - start_x), 0..start_i] {
-                    for i in span {
-                        if_free_return_cursor!(i);
+                let row = &self.board[point.y as usize * COLS..(point.y as usize + 1) * COLS];
+                let (before, after) = row.split_at(point.x as usize);
+                for (i, &v) in after.iter().enumerate().skip(1) {
+                    if v == Stone::MAX {
+                        return Some(Cursor {
+                            x: point.x + i as u8,
+                            y: point.y,
+                        });
                     }
                 }
+                for (i, &v) in before.iter().enumerate() {
+                    if v == Stone::MAX {
+                        return Some(Cursor {
+                            x: i as u8,
+                            y: point.y,
+                        });
+                    }
+                }
+                self.find_free_after_horiz(COLS - 1, point.y as usize)
+                    .or_else(|| self.find_free_before_horiz(0, point.y as usize))
             }
             Direction::West => {
-                let start_i = point.y as usize * COLS
-                    + (if point.x as usize == 0 {
-                        COLS
-                    } else {
-                        point.x as usize
-                    });
-                for span in [
-                    ((point.y as usize * COLS)..start_i).rev(),
-                    (start_i..(start_i + COLS - point.x as usize)).rev(),
-                ] {
-                    for i in span {
-                        if_free_return_cursor!(i);
+                let row = &self.board[point.y as usize * COLS..(point.y as usize + 1) * COLS];
+                let (before, after) = row.split_at(point.x as usize);
+                for (i, &v) in before.iter().enumerate().rev() {
+                    if v == Stone::MAX {
+                        return Some(Cursor {
+                            x: i as u8,
+                            y: point.y,
+                        });
                     }
                 }
+                for (i, &v) in after.iter().enumerate().skip(1).rev() {
+                    if v == Stone::MAX {
+                        return Some(Cursor {
+                            x: point.x + i as u8,
+                            y: point.y,
+                        });
+                    }
+                }
+                self.find_free_before_horiz(0, point.y as usize)
+                    .or_else(|| self.find_free_after_horiz(COLS - 1, point.y as usize))
+            }
+        }
+    }
+
+    fn find_free_after_vert(&self, mut x: usize, mut y: usize) -> Option<Cursor> {
+        if y == ROWS - 1 {
+            if x == COLS - 1 {
+                return None;
+            } else {
+                y = 0;
+                x += 1;
+            }
+        } else {
+            y += 1;
+        }
+
+        loop {
+            let start_i = y * COLS + x;
+            for i in (start_i..MAX_STONES).step_by(COLS) {
+                if self.board[i] == Stone::MAX {
+                    return Some(Cursor {
+                        x: (i % COLS) as u8,
+                        y: (i / COLS) as u8,
+                    });
+                }
+            }
+
+            if x == COLS - 1 {
+                return None;
+            } else {
+                x += 1;
+                y = 0;
+            }
+        }
+    }
+
+    fn find_free_before_vert(&self, mut x: usize, mut y: usize) -> Option<Cursor> {
+        if y == 0 {
+            if x == 0 {
+                return None;
+            } else {
+                x -= 1;
+                y = ROWS - 1;
+            }
+        } else {
+            y -= 1;
+        };
+
+        loop {
+            let mut i = y * COLS + x;
+            loop {
+                if self.board[i] == Stone::MAX {
+                    return Some(Cursor {
+                        x: (i % COLS) as u8,
+                        y: (i / COLS) as u8,
+                    });
+                }
+                if i >= COLS {
+                    i -= COLS;
+                } else {
+                    break;
+                }
+            }
+            if x == 0 {
+                return None;
+            } else {
+                x -= 1;
+                y = ROWS - 1;
+            }
+        }
+    }
+
+    fn find_free_after_horiz(&self, x: usize, y: usize) -> Option<Cursor> {
+        let start_i = y * COLS + x + 1;
+        let after = &self.board[start_i..];
+        for (i, &x) in after.iter().enumerate() {
+            if x == Stone::MAX {
+                return Some(Cursor {
+                    x: ((start_i + i) % COLS) as u8,
+                    y: ((start_i + i) / COLS) as u8,
+                });
+            }
+        }
+        None
+    }
+
+    fn find_free_before_horiz(&self, x: usize, y: usize) -> Option<Cursor> {
+        let end_i = y * COLS + x;
+        let before = &self.board[0..end_i];
+        for (i, &x) in before.iter().rev().enumerate() {
+            if x == Stone::MAX {
+                return Some(Cursor {
+                    x: ((end_i - i - 1) % COLS) as u8,
+                    y: ((end_i - i - 1) / COLS) as u8,
+                });
             }
         }
         None
