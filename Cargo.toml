@@ -1,0 +1,17 @@
+[package]
+name = "summing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.29"
+anyhow = "1"
+rand = { version = "0.9", deafult-features = false, features = ["std_rng"] }
+argh = { version = "0.1", default-features = false, features = ["help"] }
+itoa = "1"
+constcat = "0.6"
+
+[features]
+default = []
+dev = []
