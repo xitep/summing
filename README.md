@@ -3,7 +3,7 @@
 A mathematical puzzle game for the terminal — a rewrite of
 ["Summing for PalmOS"](https://palmdb.net/app/summing-math).
 
-![screenshot](./summing.png)
+![summing screenshot](https://raw.githubusercontent.com/xitep/summing/refs/heads/main/summing.png)
 
 ## How to play
 

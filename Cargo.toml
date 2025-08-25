@@ -1,9 +1,12 @@
 [package]
 name = "summing"
+description = "A mathematical puzzle game for the terminal"
+license = "0BSD"
 version = "0.1.0"
 edition = "2024"
 keywords = ["terminal", "game", "tui"]
 categories = ["games"]
+exclude = ["summing.png"]
 
 [dependencies]
 ratatui = "0.29"
