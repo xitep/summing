@@ -110,6 +110,9 @@ impl<R> Game<R> {
         // ~ is `point` itself free? we never get called on a free point, though.
         // if_free_return_cursor!(point.x, point.y);
 
+        // XXX consider directly above/below/left/right closer than
+        //  places on the diagonals (on the same circle)
+
         // ~ look for free cells in a circle around `point` with an
         // increasing radius ... thereby finding the closest free
         // board cell - if any
