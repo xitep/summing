@@ -38,12 +38,14 @@ fn main() -> Result<()> {
         help_return_mode: ScreenMode::Playing,
     };
     #[cfg(feature = "dev")]
-    if let Some(state) = args.start_state {
-        match state {
-            args::StartState::Success => app.game.set_finished(game::Finished::Success),
-            args::StartState::Failure => app.game.set_finished(game::Finished::Failure),
+    if let Some(path) = args.board {
+        let r = std::fs::File::open(path)?;
+        let r = std::io::BufReader::new(r);
+        app.game.load_from_reader(r)?;
+        app.point = app.game.find_free_any(app.point.unwrap_or_default());
+        if app.point.is_none() {
+            app.mode = ScreenMode::GameOver;
         }
-        app.mode = ScreenMode::GameOver;
     }
     let terminal = ratatui::init();
     let result = app.run(terminal);

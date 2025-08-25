@@ -107,8 +107,8 @@ impl<R> Game<R> {
             };
         }
 
-        // ~ is `point` itself free? we never get called on a free point, though.
-        // if_free_return_cursor!(point.x, point.y);
+        // ~ is `point` itself free?
+        if_free_return_cursor!(point.x, point.y);
 
         // XXX consider directly above/below/left/right closer than
         //  places on the diagonals (on the same circle)
@@ -364,27 +364,37 @@ impl<R> Game<R> {
         None
     }
 
-    /// Artificially sets the board to finished state.
+    /// Loads the board from a textual presentation. Example:
+    ///
+    /// ```
+    /// .........
+    /// .1234678.
+    /// ...7.0.2.
+    /// .1234678.
+    /// .123.679.
+    /// .1...638.
+    /// .12.4670.
+    /// .1234678.
+    /// .........
+    /// ```
+    ///
+    /// No guarantee about the state of the game is provided if the
+    /// given content cannot be parsed correctly.
     #[cfg(feature = "dev")]
-    pub fn set_finished(&mut self, state: Finished) {
-        match state {
-            Finished::Success => {
-                for i in 0..self.board.len() {
-                    self.board[i] = Stone::MAX;
-                }
-                self.num_remaining = 0;
-            }
-            Finished::Failure => {
-                let mut i = 0;
-                for r in 0..ROWS {
-                    for c in 0..COLS {
-                        self.board[i] = ((r + c) % COLS) as u8;
-                        i += 1;
-                    }
-                }
-                self.num_remaining = MAX_STONES;
+    pub fn load_from_reader<S: std::io::BufRead>(&mut self, rdr: S) -> anyhow::Result<()> {
+        for (y, line) in rdr.lines().enumerate().take(9) {
+            for (x, c) in line?.bytes().enumerate().take(9) {
+                self.board[y * COLS + x] = if c.is_ascii_digit() {
+                    c - b'0'
+                } else if c == b' ' || c == b'.' {
+                    Stone::MAX
+                } else {
+                    anyhow::bail!("invalid character '{c}' [line: {y} / column: {x}");
+                };
             }
         }
+        self.num_remaining = self.board.iter().filter(|&&c| c != Stone::MAX).count();
+        Ok(())
     }
 
     /// Determines whether the game is considered over.
