@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 
 // ~ 0-9 or u8::MAX
 type Stone = u8;
@@ -36,7 +36,7 @@ pub enum Finished {
 }
 
 /// Cursor into the game's board
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cursor {
     pub x: u8,
     pub y: u8,
@@ -87,78 +87,6 @@ impl<R> Game<R> {
         } else {
             Some(stone_label(v))
         }
-    }
-
-    /// Finds any free place preferrably close to `point`.
-    // ~ panics if `point` is out of the board's bounds
-    pub fn find_free_any(&self, point: Cursor) -> Option<Cursor> {
-        if self.num_remaining == MAX_STONES {
-            return None;
-        }
-
-        macro_rules! if_free_return_cursor {
-            ($x:expr, $y:expr) => {
-                if self.board[$y as usize * COLS + $x as usize] == Stone::MAX {
-                    return Some(Cursor {
-                        x: $x as u8,
-                        y: $y as u8,
-                    });
-                }
-            };
-        }
-
-        // ~ is `point` itself free?
-        if_free_return_cursor!(point.x, point.y);
-
-        // XXX consider directly above/below/left/right closer than
-        //  places on the diagonals (on the same circle)
-
-        // ~ look for free cells in a circle around `point` with an
-        // increasing radius ... thereby finding the closest free
-        // board cell - if any
-        for r in 1..ROWS.max(COLS) {
-            // ~ check upper row
-            if r <= point.y as usize {
-                let y = point.y as isize - r as isize;
-                for x in (point.x as usize)..(point.x as usize + r + 1).min(COLS) {
-                    if_free_return_cursor!(x, y);
-                }
-                for x in (point.x as isize - r as isize).max(0)..(point.x as isize) {
-                    if_free_return_cursor!(x, y);
-                }
-            }
-            // ~ check right column
-            if point.x as usize + r < COLS {
-                let x = point.x as usize + r;
-                for y in (point.y as isize - r as isize + 1).max(0)..(point.y as isize) {
-                    if_free_return_cursor!(x, y);
-                }
-                for y in (point.y as usize)..(point.y as usize + r).min(ROWS) {
-                    if_free_return_cursor!(x, y);
-                }
-            }
-            // ~ check bottom row
-            if point.y as usize + r < ROWS {
-                let y = point.y as usize + r;
-                for x in (point.x as usize)..(point.x as usize + r + 1).min(COLS) {
-                    if_free_return_cursor!(x, y);
-                }
-                for x in (point.x as isize - r as isize).max(0)..(point.x as isize) {
-                    if_free_return_cursor!(x, y);
-                }
-            }
-            // ~ check left column
-            if r <= point.x as usize {
-                let x = point.x as usize - r;
-                for y in (point.y as isize - r as isize + 1).max(0)..(point.y as isize) {
-                    if_free_return_cursor!(x, y);
-                }
-                for y in (point.y as usize)..(point.y as usize + r).min(ROWS) {
-                    if_free_return_cursor!(x, y);
-                }
-            }
-        }
-        None
     }
 
     /// Finds a free place next to `point` preferrably in given
@@ -317,6 +245,93 @@ impl<R: Rng> Game<R> {
         self.num_remaining = (ROWS - 2) * (COLS - 2);
     }
 
+    /// Finds any free place preferrably close to `point`.
+    // ~ panics if `point` is out of the board's bounds
+    pub fn find_free_any(&mut self, point: Cursor) -> Option<Cursor> {
+        if self.num_remaining == MAX_STONES {
+            return None;
+        }
+        macro_rules! if_free_return_cursor {
+            ($x:expr, $y:expr, $label:literal) => {
+                if self.board[$y as usize * COLS + $x as usize] == Stone::MAX {
+                    return Some(Cursor {
+                        x: $x as u8,
+                        y: $y as u8,
+                    });
+                }
+            };
+        }
+        // ~ is `point` itself free?
+        if_free_return_cursor!(point.x, point.y, "point");
+        // ~ start out in random order to get some variability
+        let directions = {
+            let mut ds = [
+                Direction::North,
+                Direction::East,
+                Direction::South,
+                Direction::West,
+            ];
+            ds.shuffle(&mut self.rng);
+            ds
+        };
+        // ~ look for free cells in a circle around `point` with an
+        // increasing radius. the number of needed jumps (ups/downs,
+        // lefts/rights) from `point` to a target cell is the distance
+        // which we strive to be minimal in the finally suggested cell
+        let (x, y) = (point.x as usize, point.y as usize);
+        for r in 1..ROWS.max(COLS) {
+            for o in 0..=r {
+                for d in &directions {
+                    match d {
+                        Direction::North => {
+                            if y >= r {
+                                if x + o < COLS {
+                                    if_free_return_cursor!(x + o, y - r, "north right");
+                                }
+                                if o > 0 && x >= o {
+                                    if_free_return_cursor!(x - o, y - r, "north left");
+                                }
+                            }
+                        }
+                        Direction::East => {
+                            // ~ corners are checked by "north" and "south"
+                            if o != r && x + r < COLS {
+                                if y + o < ROWS {
+                                    if_free_return_cursor!(x + r, y + o, "east  down");
+                                }
+                                if o > 0 && y >= o {
+                                    if_free_return_cursor!(x + r, y - o, "east  up");
+                                }
+                            }
+                        }
+                        Direction::South => {
+                            if y + r < ROWS {
+                                if x >= o {
+                                    if_free_return_cursor!(x - o, y + r, "south left");
+                                }
+                                if o > 0 && x + o < COLS {
+                                    if_free_return_cursor!(x + o, y + r, "south right");
+                                }
+                            }
+                        }
+                        Direction::West => {
+                            // ~ corners are checked by "north" and "south" already
+                            if o != r && x >= r {
+                                if y >= o {
+                                    if_free_return_cursor!(x - r, y - o, "west  up");
+                                }
+                                if o > 0 && y + o < ROWS {
+                                    if_free_return_cursor!(x - r, y + o, "west  down");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Assuming the cell at `point` is free, attempt to place the
     /// next stone (from `nexts`) to it, returning `true` if the stone
     /// was placed and now occupies the cell, or `false` if it cleared
@@ -401,4 +416,131 @@ fn new_board<R: Rng>(rng: &mut R) -> [Stone; MAX_STONES] {
         xs[i] = Stone::MAX;
     });
     xs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cursor, Game, Stone, COLS, ROWS};
+
+    struct ConstantRng;
+
+    impl rand::RngCore for ConstantRng {
+        fn next_u32(&mut self) -> u32 {
+            0
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            0
+        }
+
+        fn fill_bytes(&mut self, dst: &mut [u8]) {
+            for b in dst {
+                *b = 0;
+            }
+        }
+    }
+
+    fn make_board(board: [&str; ROWS]) -> Game<ConstantRng> {
+        let mut game = Game::new(ConstantRng);
+        for (y, line) in board.iter().enumerate() {
+            for (x, c) in line.chars().enumerate() {
+                game.board[y * COLS + x] = if c.is_ascii_digit() {
+                    (c as usize - '0' as usize) as u8
+                } else {
+                    Stone::MAX
+                };
+            }
+        }
+        game
+    }
+
+    #[test]
+    fn test_find_free_any_full_board() {
+        let mut game = make_board([
+            "000000000",
+            "111111111",
+            "222222222",
+            "333333333",
+            "444444444",
+            "555555555",
+            "666666666",
+            "777777777",
+            "888888888",
+        ]);
+        assert_eq!(None, game.find_free_any(Cursor { x: 0, y: 0 }));
+    }
+
+    #[test]
+    fn test_find_free_any_single_free_cell() {
+        for y in 0..ROWS {
+            for x in 0..COLS {
+                let mut game = make_board([
+                    "000000000",
+                    "111111111",
+                    "222222222",
+                    "333333333",
+                    "444444444",
+                    "555555555",
+                    "666666666",
+                    "777777777",
+                    "888888888",
+                ]);
+                game.board[y * COLS + x] = Stone::MAX;
+                // ~ start at the free cell itself
+                assert_eq!(
+                    Some(Cursor {
+                        x: x as u8,
+                        y: y as u8
+                    }),
+                    game.find_free_any(Cursor {
+                        x: x as u8,
+                        y: y as u8
+                    })
+                );
+                // ~ start somewhere on a non-free cell
+                assert_eq!(
+                    Some(Cursor {
+                        x: x as u8,
+                        y: y as u8
+                    }),
+                    game.find_free_any(Cursor {
+                        x: ((x + 1) % COLS) as u8,
+                        y: y as u8
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_find_free_any_closest_0() {
+        let mut game = make_board([
+            "000000.00",
+            "111111111",
+            "222222222",
+            "333333333",
+            "444444444",
+            "555555555",
+            "666666666",
+            "777777777",
+            "88.888888",
+        ]);
+        // ~ starting on a free cell, should deliver that cell
+        assert_eq!(
+            Some(Cursor { x: 6, y: 0 }),
+            game.find_free_any(Cursor { x: 6, y: 0 })
+        );
+        assert_eq!(
+            Some(Cursor { x: 2, y: 8 }),
+            game.find_free_any(Cursor { x: 2, y: 8 })
+        );
+        // ~ now, let's probe some other start points (that should
+        // yield the lower left free cell as its closest)
+        for p in [(0, 8), (8, 8), (3, 4), (6, 6)] {
+            assert_eq!(
+                Some(Cursor { x: 2, y: 8 }),
+                game.find_free_any(Cursor { x: p.0, y: p.1 })
+            );
+        }
+    }
 }
