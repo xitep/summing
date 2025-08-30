@@ -19,11 +19,31 @@ mod game;
 fn main() -> Result<()> {
     let args = args::from_env();
     let mut app = App {
-        game: Game::new(if let Some(seed) = args.seed {
-            rand::rngs::StdRng::seed_from_u64(seed)
-        } else {
-            rand::rngs::StdRng::from_os_rng()
-        }),
+        game: RenderedGame {
+            state: Game::new(if let Some(seed) = args.seed {
+                rand::rngs::StdRng::seed_from_u64(seed)
+            } else {
+                rand::rngs::StdRng::from_os_rng()
+            }),
+            stone_labels: if args.wide {
+                ["０", "１", "２", "３", "４", "５", "６", "７", "８", "９"]
+            } else {
+                ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+            },
+            stone_styles: [
+                /* 0 */ Style::new().bg(Color::DarkGray).fg(Color::White),
+                /* 1 */ Style::new().bg(Color::Magenta).fg(Color::White),
+                /* 2 */ Style::new().bg(Color::Blue).fg(Color::White),
+                /* 3 */ Style::new().bg(Color::Red).fg(Color::LightYellow),
+                /* 4 */ Style::new().bg(Color::Yellow).fg(Color::Black),
+                /* 5 */ Style::new().bg(Color::Green).fg(Color::Black),
+                /* 6 */ Style::new().bg(Color::LightBlue).fg(Color::Black),
+                /* 7 */ Style::new().bg(Color::Magenta).fg(Color::Black),
+                /* 8 */ Style::new().bg(Color::DarkGray).fg(Color::Yellow),
+                /* 9 */ Style::new().bg(Color::Gray).fg(Color::Black),
+            ],
+            packed_ui: !args.wide,
+        },
         point: Some(Cursor::default()),
         seed_info: args.seed.map(|seed| {
             let mut b = itoa::Buffer::new();
@@ -56,11 +76,14 @@ fn main() -> Result<()> {
 // --------------------------------------------------------------------
 
 struct App<R> {
-    game: Game<R>,
+    game: RenderedGame<R>,
+    // ~ where is the current right now?
     point: Option<Cursor>,
+    // ~ did we start with a specific seed?
     seed_info: Option<String>,
+    // ~ which screen are we in right now?
     mode: ScreenMode,
-    // ~ the mode to return to when closing the 'help' window;
+    // ~ the mode to return to when closing the 'help' screen;
     // maintained/set when opening the 'help' window
     help_return_mode: ScreenMode,
 }
@@ -84,8 +107,13 @@ impl<R: Rng> App<R> {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
-        let height = self.game.rows() as u16 + 2;
-        let width = self.game.cols() as u16 * 2 + 1 + 5;
+        let height = self.game.state.rows() as u16 + 2;
+        let width = self.game.state.cols() as u16 * 2
+            + if self.game.packed_ui {
+                2 + 6 /* borders (left, right) + "nexts" area */
+            } else {
+                1 + 5 /* one border; right omitted (packed) + "nexts" area (packed) */
+            };
 
         let frame_area = frame.area();
         if frame_area.width < width || frame_area.height < height {
@@ -108,11 +136,11 @@ impl<R: Rng> App<R> {
 
         match self.mode {
             ScreenMode::Playing | ScreenMode::GameOver => {
-                if let Some(state) = self.game.is_finished() {
+                if let Some(state) = self.game.state.is_finished() {
                     let s = match state {
                         game::Finished::Success => Cow::Owned(format!(
                             "Congratulations!\n\nYou made it with {} placements only! 😎",
-                            self.game.num_placed(),
+                            self.game.state.num_placed(),
                         )),
                         game::Finished::Failure => {
                             Cow::Borrowed("Too bad, no more placements possible!\n\nGame over! 😕")
@@ -231,10 +259,10 @@ impl<R: Rng> App<R> {
                 }
                 KeyCode::Char(' ') => {
                     if let Some(point) = self.point {
-                        if self.game.place_next(point) {
-                            self.point = self.game.find_free_any(point);
+                        if self.game.state.place_next(point) {
+                            self.point = self.game.state.find_free_any(point);
                         }
-                        if self.game.is_finished().is_some() {
+                        if self.game.state.is_finished().is_some() {
                             self.mode = ScreenMode::GameOver;
                         }
                     }
@@ -250,7 +278,7 @@ impl<R: Rng> App<R> {
                     self.mode = ScreenMode::Help(0);
                 }
                 KeyCode::Char('n') => {
-                    self.game.reinit();
+                    self.game.state.reinit();
                     self.point = Some(Cursor::default());
                     self.mode = ScreenMode::Playing;
                 }
@@ -280,12 +308,33 @@ impl<R: Rng> App<R> {
 
     fn move_cursor(&mut self, direction: game::Direction) {
         if let Some(point) = self.point {
-            self.point = self.game.find_free_next(point, direction);
+            self.point = self.game.state.find_free_next(point, direction);
         }
     }
 }
 
-impl<R> Widget for &Game<R> {
+// --------------------------------------------------------------------
+
+struct RenderedGame<R> {
+    state: Game<R>,
+    stone_labels: [&'static str; game::NUM_STONES],
+    stone_styles: [Style; game::NUM_STONES],
+    // ~ true to "pack / cram / squeeze" the UI a bit; used in
+    // non-wide mode to cut back on non-elegant visual "gaps"
+    packed_ui: bool,
+}
+
+impl<R> RenderedGame<R> {
+    fn stone_label(&self, stone: game::Stone) -> &'static str {
+        self.stone_labels[stone as usize]
+    }
+
+    fn stone_style(&self, stone: game::Stone) -> Style {
+        self.stone_styles[stone as usize]
+    }
+}
+
+impl<R> Widget for &RenderedGame<R> {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
@@ -298,26 +347,28 @@ impl<R> Widget for &Game<R> {
         // board ------------------------------------------------------
 
         let mut y = area.y + 1; // ~ one for the border
-        for r in 0..self.rows() {
+        for r in 0..self.state.rows() {
             let mut x = area.left() + 1; // ~ one for the border
-            for c in 0..self.cols() {
-                if let Some(s) = self.get(r, c) {
+            for c in 0..self.state.cols() {
+                if let Some(s) = self.state.get(r, c) {
                     buf[Position { x, y }]
-                        .set_style(stone_style(s).bold())
-                        .set_symbol(s);
+                        .set_style(self.stone_style(s).bold())
+                        .set_symbol(self.stone_label(s));
                 }
                 x += 2;
             }
             y += 1;
         }
 
-        // ~ the last colum is only one char wide
+        let xp = if self.packed_ui { 0 } else { 1 };
+
+        // ~ the last colum is only one char wide (in packed mode)
         Block::bordered().render(
             Rect {
                 x: area.x,
                 y: area.y,
-                width: 1 + self.cols() as u16 * 2, /* +1 -1 */
-                height: self.rows() as u16 + 2,
+                width: 1 + xp + self.state.cols() as u16 * 2,
+                height: self.state.rows() as u16 + 2,
             },
             buf,
         );
@@ -326,14 +377,14 @@ impl<R> Widget for &Game<R> {
 
         Block::bordered().render(
             Rect {
-                x: area.x + 1 + self.cols() as u16 * 2,
+                x: area.x + 1 + xp + self.state.cols() as u16 * 2,
                 y: area.y,
-                width: 5,
-                height: self.rows() as u16 + 2,
+                width: if self.packed_ui { 5 } else { 6 },
+                height: self.state.rows() as u16 + 2,
             },
             buf,
         );
-        let x = area.x + 1 + 1 + self.cols() as u16 * 2 + 1;
+        let x = area.x + 1 + xp + self.state.cols() as u16 * 2 + 1 + 1;
         if area.y > 0 {
             buf[Position {
                 x: x - 3,
@@ -343,49 +394,48 @@ impl<R> Widget for &Game<R> {
             .set_fg(Color::DarkGray);
         }
         y = area.y + 1;
-        for (i, s) in self.nexts().enumerate() {
+        for (i, s) in self.state.nexts().enumerate() {
             if i > 0 {
                 buf[Position { x, y }]
-                    .set_symbol("↑")
+                    .set_symbol(if self.packed_ui { "↑" } else { " ￪" })
                     .set_fg(Color::DarkGray);
                 y += 1;
             }
+            let mut style = self.stone_style(s);
+            if i == 0 {
+                style = style.bold();
+            }
             buf[Position { x, y }]
-                .set_style(stone_style(s))
-                .set_symbol(s);
+                .set_style(style)
+                .set_symbol(self.stone_label(s));
             y += 1;
         }
         buf[Position { x, y }]
-            .set_symbol("—")
+            .set_symbol(if self.packed_ui { "—" } else { "——" })
             .set_fg(Color::DarkGray);
         y += 1;
 
         // num_placed stones so far -----------------------------------
         let mut b = itoa::Buffer::new();
-        let s = b.format(self.num_placed());
+        let s = b.format(self.state.num_placed());
         buf[Position {
-            x: if s.len() > 1 { x - 1 } else { x },
+            x: if self.packed_ui {
+                if s.len() > 1 {
+                    x - 1
+                } else {
+                    x
+                }
+            } else if s.len() < 2 {
+                x + 1
+            } else if s.len() < 3 {
+                x
+            } else {
+                x - 1
+            },
             y,
         }]
         .set_symbol(s);
     }
-}
-
-static STONE_STYLES: [Style; 10] = [
-    /* 0 */ Style::new().bg(Color::DarkGray).fg(Color::White),
-    /* 1 */ Style::new().bg(Color::Magenta).fg(Color::White),
-    /* 2 */ Style::new().bg(Color::Blue).fg(Color::White),
-    /* 3 */ Style::new().bg(Color::Red).fg(Color::LightYellow),
-    /* 4 */ Style::new().bg(Color::Yellow).fg(Color::Black),
-    /* 5 */ Style::new().bg(Color::Green).fg(Color::Black),
-    /* 6 */ Style::new().bg(Color::LightBlue).fg(Color::Black),
-    /* 7 */ Style::new().bg(Color::Magenta).fg(Color::Black),
-    /* 8 */ Style::new().bg(Color::DarkGray).fg(Color::Yellow),
-    /* 9 */ Style::new().bg(Color::Gray).fg(Color::Black),
-];
-
-fn stone_style(label: &str) -> Style {
-    STONE_STYLES[label.as_bytes()[0] as usize - '0' as usize]
 }
 
 struct Help;

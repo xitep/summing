@@ -1,20 +1,69 @@
-use rand::{seq::SliceRandom, Rng};
+use std::ops::Add;
 
-// ~ 0-9 or u8::MAX
-type Stone = u8;
+use rand::{
+    distr::{Distribution, StandardUniform},
+    seq::SliceRandom,
+    Rng,
+};
 
-const NUM_STONES: u8 = 10;
+// ~ the number of distinct stones
+pub const NUM_STONES: usize = 10;
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Stone {
+    _0 = 0,
+    _1 = 1,
+    _2 = 2,
+    _3 = 3,
+    _4 = 4,
+    _5 = 5,
+    _6 = 6,
+    _7 = 7,
+    _8 = 8,
+    _9 = 9,
+}
+
+impl Add<Stone> for usize {
+    type Output = Self;
+
+    fn add(self, rhs: Stone) -> Self::Output {
+        self + rhs as usize
+    }
+}
+
+impl Distribution<Stone> for StandardUniform {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Stone {
+        match rng.next_u32() % (NUM_STONES as u32) {
+            0 => Stone::_0,
+            1 => Stone::_1,
+            2 => Stone::_2,
+            3 => Stone::_3,
+            4 => Stone::_4,
+            5 => Stone::_5,
+            6 => Stone::_6,
+            7 => Stone::_7,
+            8 => Stone::_8,
+            9 => Stone::_9,
+            _ => panic!("invalid NUM_STONES"),
+        }
+    }
+}
+
+// ~ the size of the "nexts" magazine
+const NUM_NEXTS: usize = 4;
+
 const ROWS: usize = 9;
 const COLS: usize = 9;
-
+// ~ the number of max possible stones on the board, essentially it's
+// the size of the board in terms of the number of stones.
 const MAX_STONES: usize = ROWS * COLS;
 
 /// Game board state
 pub struct Game<R> {
     // ~ random number generator
     rng: R,
-    // ~ four stones to be served next (left to right)
-    nexts: u32,
+    // ~ stones to be served as next (left to right)
+    nexts: [Stone; NUM_NEXTS],
     // ~ number of stones still on the board; zero when the game is
     // finished; `MAX_STONES` if the board is full and no new
     // placement is possible
@@ -22,7 +71,7 @@ pub struct Game<R> {
     // ~ number of (user) placed stones, ie. the "score"
     num_placed: usize,
     // ~ the board of stones; rows of columns
-    board: [Stone; MAX_STONES],
+    board: [Option<Stone>; MAX_STONES],
 }
 
 pub enum Finished {
@@ -49,11 +98,6 @@ pub enum Direction {
     West,
 }
 
-// ~ may panic if `stone >= NUM_STONES`
-fn stone_label(stone: u8) -> &'static str {
-    &"0123456789"[stone as usize..(stone as usize + 1)]
-}
-
 impl<R> Game<R> {
     pub fn rows(&self) -> usize {
         ROWS
@@ -63,15 +107,8 @@ impl<R> Game<R> {
         COLS
     }
 
-    pub fn nexts(&self) -> impl Iterator<Item = &'static str> {
-        [
-            ((self.nexts & 0x_ff00_0000) >> 24) as u8,
-            ((self.nexts & 0x_00ff_0000) >> 16) as u8,
-            ((self.nexts & 0x_0000_ff00) >> 8) as u8,
-            (self.nexts & 0x_0000_00ff) as u8,
-        ]
-        .map(stone_label)
-        .into_iter()
+    pub fn nexts(&self) -> impl Iterator<Item = Stone> {
+        self.nexts.into_iter()
     }
 
     /// Tells the number of placed stones so far.
@@ -80,13 +117,8 @@ impl<R> Game<R> {
     }
 
     // ~ panics if `row` or `col` are out of bounds.
-    pub fn get(&self, row: usize, col: usize) -> Option<&'static str> {
-        let v = self.board[row * COLS + col];
-        if v == Stone::MAX {
-            None
-        } else {
-            Some(stone_label(v))
-        }
+    pub fn get(&self, row: usize, col: usize) -> Option<Stone> {
+        self.board[row * COLS + col]
     }
 
     /// Finds a free place next to `point` preferrably in given
@@ -98,8 +130,8 @@ impl<R> Game<R> {
         }
 
         macro_rules! if_free_return_cursor {
-            ($index:expr, $value:expr) => {
-                if $value == Stone::MAX {
+            ($index:expr, $board_cell:expr) => {
+                if $board_cell.is_none() {
                     return Some(Cursor {
                         x: ($index % COLS) as u8,
                         y: ($index / COLS) as u8,
@@ -173,7 +205,7 @@ impl<R> Game<R> {
                 }
             }
         }
-        if self.board[point.y as usize * COLS + point.x as usize] == Stone::MAX {
+        if self.board[point.y as usize * COLS + point.x as usize].is_some() {
             Some(point)
         } else {
             None
@@ -225,15 +257,11 @@ impl<R> Game<R> {
 
 impl<R: Rng> Game<R> {
     pub fn new(mut rng: R) -> Self {
-        let nexts = (rng.random_range::<u32, _>(0..NUM_STONES as u32) << 24)
-            | (rng.random_range::<u32, _>(0..NUM_STONES as u32) << 16)
-            | (rng.random_range::<u32, _>(0..NUM_STONES as u32) << 8)
-            | rng.random_range::<u32, _>(0..NUM_STONES as u32);
         Self {
             board: new_board(&mut rng),
             num_remaining: (ROWS - 2) * (COLS - 2),
             num_placed: 0,
-            nexts,
+            nexts: rng.random::<[Stone; NUM_NEXTS]>(),
             rng,
         }
     }
@@ -253,7 +281,7 @@ impl<R: Rng> Game<R> {
         }
         macro_rules! if_free_return_cursor {
             ($x:expr, $y:expr, $label:literal) => {
-                if self.board[$y as usize * COLS + $x as usize] == Stone::MAX {
+                if self.board[$y as usize * COLS + $x as usize].is_none() {
                     return Some(Cursor {
                         x: $x as u8,
                         y: $y as u8,
@@ -372,23 +400,25 @@ impl<R: Rng> Game<R> {
 
             let (cnt, sum) = idxs
                 .iter()
-                .filter(|&&i| i != usize::MAX && self.board[i] != Stone::MAX)
-                .map(|&i| self.board[i] as usize)
+                .filter_map(|&i| if i == usize::MAX { None } else { self.board[i] })
                 .fold((0, 0), |(cnt, sum), v| (cnt + 1, sum + v));
-            (idxs, cnt, (sum % 10))
+            (idxs, cnt, (sum % NUM_STONES))
         };
 
-        let n = ((self.nexts & 0x_ff00_0000) >> 24) as u8;
-        self.nexts = (self.nexts << 8) | self.rng.random_range::<u32, _>(0..NUM_STONES as u32);
+        let next = self.nexts[0];
+        for i in 0..(NUM_NEXTS - 1) {
+            self.nexts[i] = self.nexts[i + 1];
+        }
+        self.nexts[NUM_NEXTS - 1] = self.rng.random();
 
-        let cleared = if cnt > 0 && n as usize == sum {
+        let cleared = if cnt > 0 && next as usize == sum {
             idxs.into_iter().filter(|&i| i != usize::MAX).for_each(|i| {
-                self.board[i] = Stone::MAX;
+                self.board[i] = None;
             });
             self.num_remaining -= cnt;
             false
         } else {
-            self.board[point.y as usize * COLS + point.x as usize] = n;
+            self.board[point.y as usize * COLS + point.x as usize] = Some(next);
             self.num_remaining += 1;
             true
         };
@@ -397,30 +427,26 @@ impl<R: Rng> Game<R> {
     }
 }
 
-fn new_board<R: Rng>(rng: &mut R) -> [Stone; MAX_STONES] {
-    let mut xs = [0u8; ROWS * COLS];
-    // ~ first row
-    (0..COLS).for_each(|i| {
-        xs[i] = Stone::MAX;
-    });
+fn new_board<R: Rng>(rng: &mut R) -> [Option<Stone>; MAX_STONES] {
+    let mut xs = [None::<Stone>; MAX_STONES];
     // ~ middle cells
     for row in 1..(ROWS - 1) {
-        xs[row * COLS] = Stone::MAX;
         for col in 1..COLS - 1 {
-            xs[row * COLS + col] = rng.random_range::<u8, _>(0..NUM_STONES);
+            xs[row * COLS + col] = Some(rng.random::<Stone>());
         }
-        xs[row * COLS + COLS - 1] = Stone::MAX;
     }
-    // ~ last row
-    (((ROWS - 1) * COLS)..(((ROWS - 1) * COLS) + COLS)).for_each(|i| {
-        xs[i] = Stone::MAX;
-    });
     xs
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Cursor, Game, Stone, COLS, ROWS};
+
+    #[test]
+    fn assert_stone_size() {
+        assert_eq!(1, std::mem::size_of::<Stone>());
+        assert_eq!(1, std::mem::size_of::<Option<Stone>>());
+    }
 
     struct ConstantRng;
 
@@ -440,15 +466,31 @@ mod tests {
         }
     }
 
+    impl TryFrom<char> for Stone {
+        type Error = &'static str;
+
+        fn try_from(value: char) -> Result<Self, Self::Error> {
+            match value {
+                '0' => Ok(Stone::_0),
+                '1' => Ok(Stone::_1),
+                '2' => Ok(Stone::_2),
+                '3' => Ok(Stone::_3),
+                '4' => Ok(Stone::_4),
+                '5' => Ok(Stone::_5),
+                '6' => Ok(Stone::_6),
+                '7' => Ok(Stone::_7),
+                '8' => Ok(Stone::_8),
+                '9' => Ok(Stone::_9),
+                _ => Err("Not an ASCII digit"),
+            }
+        }
+    }
+
     fn make_board(board: [&str; ROWS]) -> Game<ConstantRng> {
         let mut game = Game::new(ConstantRng);
         for (y, line) in board.iter().enumerate() {
             for (x, c) in line.chars().enumerate() {
-                game.board[y * COLS + x] = if c.is_ascii_digit() {
-                    (c as usize - '0' as usize) as u8
-                } else {
-                    Stone::MAX
-                };
+                game.board[y * COLS + x] = c.try_into().ok();
             }
         }
         game
@@ -485,7 +527,7 @@ mod tests {
                     "777777777",
                     "888888888",
                 ]);
-                game.board[y * COLS + x] = Stone::MAX;
+                game.board[y * COLS + x] = None;
                 // ~ start at the free cell itself
                 assert_eq!(
                     Some(Cursor {

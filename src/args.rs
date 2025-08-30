@@ -4,8 +4,12 @@ use argh::FromArgs;
 #[derive(FromArgs)]
 pub struct Options {
     /// seed to initialize the random number generator with
-    #[argh(option)]
+    #[argh(option, short = 's')]
     pub seed: Option<u64>,
+
+    /// draw with full-width characters
+    #[argh(switch, short = 'w')]
+    pub wide: bool,
 
     /// loads a predefined board
     #[cfg(feature = "dev")]
