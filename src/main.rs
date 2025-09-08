@@ -16,6 +16,11 @@ use ratatui::{
 mod args;
 mod game;
 
+// XXX consider a mode (opt-in with a cmdline option) in which each
+// game receives a random seed which gets revealed when the board is
+// cleared allowing to re-play the same game (the then used RNG must
+// be stable across operating systems.)
+
 fn main() -> Result<()> {
     let args = args::from_env();
     let mut app = App {
@@ -471,28 +476,24 @@ const HELP_TITLE: &str = constcat::concat!(
 );
 
 const HELP_TEXT: &str = r#"
-You're goal is to iteratively clear the 9x9 board on the left
-by placing a given number onto the board such that the sum of
-all the neighbours of the chosen place on the board (in any
-direction, including the diagonals) modulo 10 is equal to it;
-i.e. `sum(neighbours) % 10 == number`. In other words, the
+Your goal is to iteratively clear the 9x9 board on the left
+by placing a given number onto a free place such that the sum
+of all neighbours around it (in any direction, including the
+diagonals) modulo 10 equals the placed number;
+i.e. `sum(neighbours) % 10 == number`.  In other words, the
 last (decimal) digit of the neighbours' sum must equal the
-given number. Of course, numbers can only be placed not yet
-unoccupied places on the board.
+placed number.  If the sum matches, all neighbours disappear.
+If it doesn't, the chosen place becomes occupied.
 
-If the sum matches, all the neighbours disappear.  If it
-doesn't, the chosen place on the board becomes occupied by
-the number at hand.
-
-Numbers are handed out to you from the top of the magazine
-on the right.  You can see the next four to come in their
-order of being available to you; this allows you to be clever
-and strategic about the numbers' placements.
+Numbers are handed out from the top of the magazine on the
+right.  You can see the next four to come in their order of
+availability; this allows you to be clever and strategic
+about the numbers' placements.
 
 Apart of clearing the board, the ultimate challenge is in
-doing so in as few placements as possible.  The current number
-of placements in a game is displayed at the bottom of the
-magazine.
+doing so with as few placements as possible.  The current
+number of placements in a game is displayed at the bottom
+of the magazine.
 
 --
 
@@ -509,7 +510,7 @@ written in Rust with Ratatui.
 
 --
 
-Enjoy and have fun!
+Enjoy, and have fun!
 "#;
 
 const HELP_LINES: usize = num_lines(HELP_TEXT);
