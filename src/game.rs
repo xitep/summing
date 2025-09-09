@@ -233,15 +233,27 @@ impl<R> Game<R> {
         for (y, line) in rdr.lines().enumerate().take(9) {
             for (x, c) in line?.bytes().enumerate().take(9) {
                 self.board[y * COLS + x] = if c.is_ascii_digit() {
-                    c - b'0'
+                    Some(match c {
+                        b'0' => Stone::_0,
+                        b'1' => Stone::_1,
+                        b'2' => Stone::_2,
+                        b'3' => Stone::_3,
+                        b'4' => Stone::_4,
+                        b'5' => Stone::_5,
+                        b'6' => Stone::_6,
+                        b'7' => Stone::_7,
+                        b'8' => Stone::_8,
+                        b'9' => Stone::_9,
+                        _ => panic!("not an ascii digit: {c:?}"),
+                    })
                 } else if c == b' ' || c == b'.' {
-                    Stone::MAX
+                    None
                 } else {
                     anyhow::bail!("invalid character '{c}' [line: {y} / column: {x}");
                 };
             }
         }
-        self.num_remaining = self.board.iter().filter(|&&c| c != Stone::MAX).count();
+        self.num_remaining = self.board.iter().filter(|c| c.is_some()).count();
         Ok(())
     }
 
@@ -259,18 +271,15 @@ impl<R: Rng> Game<R> {
     pub fn new(mut rng: R) -> Self {
         Self {
             board: new_board(&mut rng),
-            num_remaining: (ROWS - 2) * (COLS - 2),
+            nexts: rng.random(),
             num_placed: 0,
-            nexts: rng.random::<[Stone; NUM_NEXTS]>(),
+            num_remaining: (ROWS - 2) * (COLS - 2),
             rng,
         }
     }
 
-    /// Reinitializes this game for a new round from scratch.
-    pub fn reinit(&mut self) {
-        self.board = new_board(&mut self.rng);
-        self.num_placed = 0;
-        self.num_remaining = (ROWS - 2) * (COLS - 2);
+    pub fn rng(&mut self) -> &mut R {
+        &mut self.rng
     }
 
     /// Finds any free place preferrably close to `point`.

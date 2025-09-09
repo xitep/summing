@@ -23,13 +23,10 @@ mod game;
 
 fn main() -> Result<()> {
     let args = args::from_env();
+    let rng = rand::rngs::SmallRng::seed_from_u64;
     let mut app = App {
         game: RenderedGame {
-            state: Game::new(if let Some(seed) = args.seed {
-                rand::rngs::StdRng::seed_from_u64(seed)
-            } else {
-                rand::rngs::StdRng::from_os_rng()
-            }),
+            state: Game::new(rng(args.seed)),
             stone_labels: if args.wide {
                 ["０", "１", "２", "３", "４", "５", "６", "７", "８", "９"]
             } else {
@@ -50,15 +47,8 @@ fn main() -> Result<()> {
             packed_ui: !args.wide,
         },
         point: Some(Cursor::default()),
-        seed_info: args.seed.map(|seed| {
-            let mut b = itoa::Buffer::new();
-            let seed = b.format(seed);
-            let mut s = String::with_capacity(seed.len() + 2);
-            s.push('[');
-            s.push_str(seed);
-            s.push(']');
-            s
-        }),
+        new_rng: rng,
+        seed: args.seed,
         mode: ScreenMode::Playing,
         help_return_mode: ScreenMode::Playing,
     };
@@ -66,8 +56,8 @@ fn main() -> Result<()> {
     if let Some(path) = args.board {
         let r = std::fs::File::open(path)?;
         let r = std::io::BufReader::new(r);
-        app.game.load_from_reader(r)?;
-        app.point = app.game.find_free_any(app.point.unwrap_or_default());
+        app.game.state.load_from_reader(r)?;
+        app.point = app.game.state.find_free_any(app.point.unwrap_or_default());
         if app.point.is_none() {
             app.mode = ScreenMode::GameOver;
         }
@@ -80,12 +70,14 @@ fn main() -> Result<()> {
 
 // --------------------------------------------------------------------
 
-struct App<R> {
+struct App<R, F> {
     game: RenderedGame<R>,
     // ~ where is the current right now?
     point: Option<Cursor>,
-    // ~ did we start with a specific seed?
-    seed_info: Option<String>,
+    // ~ function to create new rngs given a seed
+    new_rng: F,
+    // ~ the seed we started the current game with
+    seed: u64,
     // ~ which screen are we in right now?
     mode: ScreenMode,
     // ~ the mode to return to when closing the 'help' screen;
@@ -102,7 +94,7 @@ enum ScreenMode {
     Exit,
 }
 
-impl<R: Rng> App<R> {
+impl<R: Rng, F: Fn(u64) -> R> App<R, F> {
     fn run(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         while !matches!(self.mode, ScreenMode::Exit) {
             terminal.draw(|frame| self.draw(frame))?;
@@ -139,9 +131,17 @@ impl<R: Rng> App<R> {
         };
         frame.render_widget(&self.game, board_area);
 
+        let hint_line_rect = Rect {
+            x: 0,
+            y: frame_area.y + frame_area.height - 1,
+            width: frame_area.width,
+            height: 1,
+        };
+
         match self.mode {
             ScreenMode::Playing | ScreenMode::GameOver => {
                 if let Some(state) = self.game.state.is_finished() {
+                    // ~ congrats / boo message
                     let s = match state {
                         game::Finished::Success => Cow::Owned(format!(
                             "Congratulations!\n\nYou made it with {} placements only! 😎",
@@ -162,6 +162,16 @@ impl<R: Rng> App<R> {
                     // ~ shrink the area
                     area.y += 1;
                     frame.render_widget(Paragraph::new(s).centered(), area);
+
+                    // ~ render / reveal the seed
+                    {
+                        let mut b = itoa::Buffer::new();
+                        let seed = b.format(self.seed);
+                        frame.render_widget(
+                            Line::raw(seed).right_aligned().fg(Color::DarkGray),
+                            hint_line_rect,
+                        );
+                    }
                 } else if let Some(point) = self.point {
                     frame.set_cursor_position(Position {
                         x: board_area.x + 1 + point.x as u16 * 2,
@@ -184,19 +194,7 @@ impl<R: Rng> App<R> {
             ScreenMode::Exit => {}
         }
 
-        let hint_rect = Rect {
-            x: 0,
-            y: frame_area.y + frame_area.height - 1,
-            width: frame_area.width,
-            height: 1,
-        };
-        if let Some(seed_info) = self.seed_info.as_ref() {
-            frame.render_widget(
-                Line::raw(seed_info).right_aligned().fg(Color::DarkGray),
-                hint_rect,
-            );
-        }
-        let line = match self.mode {
+        let hint_line = match self.mode {
             ScreenMode::GameOver => Line::from_iter([
                 Span::raw(" "),
                 Span::raw("q").fg(Color::Magenta),
@@ -221,7 +219,7 @@ impl<R: Rng> App<R> {
                 Span::raw("elp | ←↑↓→ <space>"),
             ]),
         };
-        frame.render_widget(line.fg(Color::DarkGray), hint_rect);
+        frame.render_widget(hint_line.fg(Color::DarkGray), hint_line_rect);
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
@@ -283,7 +281,8 @@ impl<R: Rng> App<R> {
                     self.mode = ScreenMode::Help(0);
                 }
                 KeyCode::Char('n') => {
-                    self.game.state.reinit();
+                    self.seed = self.game.state.rng().random();
+                    self.game.state = Game::new((self.new_rng)(self.seed));
                     self.point = Some(Cursor::default());
                     self.mode = ScreenMode::Playing;
                 }
@@ -421,6 +420,7 @@ impl<R> Widget for &RenderedGame<R> {
         y += 1;
 
         // num_placed stones so far -----------------------------------
+
         let mut b = itoa::Buffer::new();
         let s = b.format(self.state.num_placed());
         buf[Position {
