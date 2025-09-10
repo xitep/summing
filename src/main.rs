@@ -16,10 +16,7 @@ use ratatui::{
 mod args;
 mod game;
 
-// XXX consider a mode (opt-in with a cmdline option) in which each
-// game receives a random seed which gets revealed when the board is
-// cleared allowing to re-play the same game (the then used RNG must
-// be stable across operating systems.)
+// XXX does a "placed" counter with more than 2 digit get properly displayed?
 
 fn main() -> Result<()> {
     let args = args::from_env();
