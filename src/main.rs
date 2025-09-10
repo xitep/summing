@@ -170,10 +170,21 @@ impl<R: Rng, F: Fn(u64) -> R> App<R, F> {
                         );
                     }
                 } else if let Some(point) = self.point {
-                    frame.set_cursor_position(Position {
-                        x: board_area.x + 1 + point.x as u16 * 2,
-                        y: board_area.y + 1 + point.y as u16,
-                    });
+                    if self.game.packed_ui {
+                        frame.set_cursor_position(Position {
+                            x: board_area.x + 1 + point.x as u16 * 2,
+                            y: board_area.y + 1 + point.y as u16,
+                        });
+                    } else {
+                        frame.buffer_mut()[Position {
+                            x: board_area.x + 1 + point.x as u16 * 2,
+                            y: board_area.y + 1 + point.y as u16,
+                        }]
+                        .set_fg(Color::Reset)
+                        .set_char('＃');
+                        // .set_char('＠');
+                        // .set_char('ｏ');
+                    }
                 }
             }
             ScreenMode::Help(ref mut scroll) => {
