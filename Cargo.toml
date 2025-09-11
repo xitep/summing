@@ -4,6 +4,7 @@ description = "A mathematical puzzle game for the terminal"
 license = "0BSD"
 version = "0.1.2"
 edition = "2024"
+repository = "https://github.com/xitep/summing"
 keywords = ["terminal", "game", "tui"]
 categories = ["games"]
 exclude = ["summing.png"]
