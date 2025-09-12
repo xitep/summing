@@ -16,8 +16,6 @@ use ratatui::{
 mod args;
 mod game;
 
-// XXX does a "placed" counter with more than 2 digit get properly displayed?
-
 fn main() -> Result<()> {
     let args = args::from_env();
     let rng = rand::rngs::SmallRng::seed_from_u64;
@@ -429,25 +427,32 @@ impl<R> Widget for &RenderedGame<R> {
 
         // num_placed stones so far -----------------------------------
 
-        let mut b = itoa::Buffer::new();
-        let s = b.format(self.state.num_placed());
-        buf[Position {
-            x: if self.packed_ui {
-                if s.len() > 1 {
-                    x - 1
-                } else {
-                    x
-                }
-            } else if s.len() < 2 {
-                x + 1
-            } else if s.len() < 3 {
-                x
-            } else {
-                x - 1
-            },
-            y,
-        }]
-        .set_symbol(s);
+        {
+            let mut b = itoa::Buffer::new();
+            let s = b.format(self.state.num_placed());
+            let s_len = s.len();
+            Span::raw(s).render(
+                Rect {
+                    x: if self.packed_ui {
+                        if s.len() > 1 {
+                            x - 1
+                        } else {
+                            x
+                        }
+                    } else if s.len() < 2 {
+                        x + 1
+                    } else if s.len() < 3 {
+                        x
+                    } else {
+                        x - 1
+                    },
+                    y,
+                    width: s_len as u16,
+                    height: 1,
+                },
+                buf,
+            );
+        }
     }
 }
 
