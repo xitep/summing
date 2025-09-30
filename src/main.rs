@@ -4,13 +4,13 @@ use anyhow::Result;
 use game::{Cursor, Game};
 use rand::{Rng, SeedableRng};
 use ratatui::{
+    DefaultTerminal, Frame,
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     layout::{Alignment, Constraint, Flex, Layout, Position, Rect},
     style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph, StatefulWidget, Widget},
-    DefaultTerminal, Frame,
 };
 
 mod args;
@@ -116,6 +116,42 @@ impl<R: Rng, F: Fn(u64) -> R> App<R, F> {
             return;
         }
 
+        let hint_line_rect = Rect {
+            x: 0,
+            y: frame_area.y + frame_area.height - 1,
+            width: frame_area.width,
+            height: 1,
+        };
+
+        // ~ render the hint line before other widgets so it get overdrawn if
+        // space is tight
+        let hint_line = match self.mode {
+            ScreenMode::GameOver => Line::from_iter([
+                Span::raw(" "),
+                Span::raw("q").fg(Color::Magenta),
+                Span::raw("uit | "),
+                Span::raw("n").fg(Color::Magenta),
+                Span::raw("ew game | "),
+                Span::raw("h").fg(Color::Magenta),
+                Span::raw("elp"),
+            ]),
+            ScreenMode::Help(_) => Line::from_iter([
+                Span::raw(" "),
+                Span::raw("q").fg(Color::Magenta),
+                Span::raw("/"),
+                Span::raw("esc").fg(Color::Magenta),
+                Span::raw(" close"),
+            ]),
+            _ => Line::from_iter([
+                Span::raw(" "),
+                Span::raw("q").fg(Color::Magenta).bold(),
+                Span::raw("uit | "),
+                Span::raw("h").fg(Color::Magenta).bold(),
+                Span::raw("elp | ←↑↓→ <space>"),
+            ]),
+        };
+        frame.render_widget(hint_line.fg(Color::DarkGray), hint_line_rect);
+
         let board_area = {
             Rect {
                 x: frame_area.x + (frame_area.width - width) / 2,
@@ -125,13 +161,6 @@ impl<R: Rng, F: Fn(u64) -> R> App<R, F> {
             }
         };
         frame.render_widget(&self.game, board_area);
-
-        let hint_line_rect = Rect {
-            x: 0,
-            y: frame_area.y + frame_area.height - 1,
-            width: frame_area.width,
-            height: 1,
-        };
 
         match self.mode {
             ScreenMode::Playing | ScreenMode::GameOver => {
@@ -164,7 +193,12 @@ impl<R: Rng, F: Fn(u64) -> R> App<R, F> {
                         let seed = b.format(self.seed);
                         frame.render_widget(
                             Line::raw(seed).right_aligned().fg(Color::DarkGray),
-                            hint_line_rect,
+                            Rect {
+                                x: hint_line_rect.width - seed.len() as u16,
+                                y: hint_line_rect.y,
+                                width: seed.len() as u16,
+                                height: 1,
+                            },
                         );
                     }
                 } else if let Some(point) = self.point {
@@ -199,33 +233,6 @@ impl<R: Rng, F: Fn(u64) -> R> App<R, F> {
             }
             ScreenMode::Exit => {}
         }
-
-        let hint_line = match self.mode {
-            ScreenMode::GameOver => Line::from_iter([
-                Span::raw(" "),
-                Span::raw("q").fg(Color::Magenta),
-                Span::raw("uit | "),
-                Span::raw("n").fg(Color::Magenta),
-                Span::raw("ew game | "),
-                Span::raw("h").fg(Color::Magenta),
-                Span::raw("elp"),
-            ]),
-            ScreenMode::Help(_) => Line::from_iter([
-                Span::raw(" "),
-                Span::raw("q").fg(Color::Magenta),
-                Span::raw("/"),
-                Span::raw("esc").fg(Color::Magenta),
-                Span::raw(" close"),
-            ]),
-            _ => Line::from_iter([
-                Span::raw(" "),
-                Span::raw("q").fg(Color::Magenta).bold(),
-                Span::raw("uit | "),
-                Span::raw("h").fg(Color::Magenta).bold(),
-                Span::raw("elp | ←↑↓→ <space>"),
-            ]),
-        };
-        frame.render_widget(hint_line.fg(Color::DarkGray), hint_line_rect);
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
@@ -373,7 +380,7 @@ impl<R> Widget for &RenderedGame<R> {
         let xp = if self.packed_ui { 0 } else { 1 };
 
         // ~ the last colum is only one char wide (in packed mode)
-        Block::bordered().render(
+        Block::bordered().border_style(Color::Reset).render(
             Rect {
                 x: area.x,
                 y: area.y,
@@ -385,7 +392,7 @@ impl<R> Widget for &RenderedGame<R> {
 
         // nexts ------------------------------------------------------
 
-        Block::bordered().render(
+        Block::bordered().border_style(Color::Reset).render(
             Rect {
                 x: area.x + 1 + xp + self.state.cols() as u16 * 2,
                 y: area.y,
@@ -434,11 +441,7 @@ impl<R> Widget for &RenderedGame<R> {
             Span::raw(s).render(
                 Rect {
                     x: if self.packed_ui {
-                        if s.len() > 1 {
-                            x - 1
-                        } else {
-                            x
-                        }
+                        if s.len() > 1 { x - 1 } else { x }
                     } else if s.len() < 2 {
                         x + 1
                     } else if s.len() < 3 {

@@ -1,9 +1,9 @@
 use std::ops::Add;
 
 use rand::{
+    Rng,
     distr::{Distribution, StandardUniform},
     seq::SliceRandom,
-    Rng,
 };
 
 // ~ the number of distinct stones
@@ -449,7 +449,7 @@ fn new_board<R: Rng>(rng: &mut R) -> [Option<Stone>; MAX_STONES] {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cursor, Game, Stone, COLS, ROWS};
+    use super::{COLS, Cursor, Game, ROWS, Stone};
 
     #[test]
     fn assert_stone_size() {
