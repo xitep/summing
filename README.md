@@ -7,9 +7,9 @@ A mathematical puzzle game for the terminal — a rewrite of
 
 ## How to play
 
-1. You're given a grid of 7x7 numbers on a board of 9x9 tiles
-2. You're also given a stream of random numbers of which you see the next four to come
-3. Place the next random number on a free tile on the board such that the last digit of neighbours' sum equals the placed number. If there's a match, the newly placed random number as well as the neighbours get cleared.
-4. Repeat the previous step until the board is either empty or full
+1. You're given a grid of 7x7 numbers on a board of 9x9 tiles.
+2. You're also given a stream of random numbers of which you see the next four to come.
+3. Place the next random number on a free tile on the board such that the last digit of the neighbours' sum equals the placed number. If there's a match, the newly placed random number as well as the neighbours get cleared.
+4. Repeat the previous step until the board is either empty or full.
 
-You're goal is to clear the board in as few placements as possible.
+Your goal is to clear the board in as few placements as possible.
